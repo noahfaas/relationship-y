@@ -328,6 +328,7 @@ footer{ text-align:center; color:#fff; opacity:.75; padding:20px; }
 CSS
 
 # ---------- web/main.js ----------
+cat > web/main.js <<'JS'
 function api(path) {
   const base = location.hostname === 'localhost' ? 'http://localhost:3000' : '';
   return base + path;
@@ -461,7 +462,7 @@ document.addEventListener('DOMContentLoaded', () => {
   el('#submit').addEventListener('click', submitAnswer);
   el('#newQ').addEventListener('click', newQuestion);
 });
-
+JS
 
 # ---------- web/vite.config.js ----------
 cat > web/vite.config.js <<'JS'
