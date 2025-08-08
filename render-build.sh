@@ -22,7 +22,7 @@ cat > package.json <<'JSON'
     "better-sqlite3": "^9.4.0",
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "nanoid": "^5.0.7",
+    "nanoid": "3.3.7",
     "ws": "^8.16.0"
   },
   "devDependencies": {
