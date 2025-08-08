@@ -169,8 +169,11 @@ app.post('/api/answer', (req, res) => {
   if (!questionId || !userId || !ciphertext || !iv || !salt) return res.status(400).json({ error: 'Missing fields' });
   const id = nanoid();
   stmtInsertAnswer.run(id, questionId, userId, Buffer.from(ciphertext, 'base64'), Buffer.from(iv, 'base64'), Buffer.from(salt, 'base64'), Date.now());
-  const answers = stmtGetAnswers.all(questionId);
-  if (answers.length >= 2) {
+
+  // Only signal "ready" once there are answers from two *distinct* users
+  const distinct = db.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM answers WHERE question_id = ?')
+                     .get(questionId).c;
+  if (distinct >= 2) {
     const qRow = db.prepare('SELECT room_id FROM questions WHERE id = ?').get(questionId);
     broadcastRoom(qRow.room_id, { type: 'readyToReveal', questionId });
   }
@@ -179,7 +182,11 @@ app.post('/api/answer', (req, res) => {
 
 app.get('/api/answers/:questionId', (req, res) => {
   const questionId = req.params.questionId;
-  const rows = stmtGetAnswers.all(questionId).map(r => ({
+  // Collapse to latest answer per user_id
+  const all = stmtGetAnswers.all(questionId).sort((a,b) => a.created_at - b.created_at);
+  const byUser = new Map();
+  for (const r of all) byUser.set(r.user_id, r);
+  const rows = [...byUser.values()].map(r => ({
     userId: r.user_id,
     ciphertext: r.ciphertext.toString('base64'),
     iv: r.iv.toString('base64'),
@@ -336,7 +343,7 @@ function api(path) {
 
 let state = { roomId: null, ws: null, questionId: null, submitted: false };
 
-// --- Stable hidden ID ---
+// --- Stable hidden ID stored in localStorage ---
 const ME_KEY = 'meId';
 function getMeId() {
   let id = localStorage.getItem(ME_KEY);
@@ -405,57 +412,45 @@ async function fetchQuestionText(){
   state.questionId = q.questionId; el('#qText').textContent = q.text;
 }
 async function loadQuestion(){ await fetchQuestionText(); }
-
 async function submitAnswer(){
   const passphrase = el('#passphrase').value.trim();
   if(!passphrase) return alert('Add a shared passphrase first');
-  const text = el('#answer').value.trim(); 
-  if(!text) return alert('Write an answer');
+  const text = el('#answer').value.trim(); if(!text) return alert('Write an answer');
   el('#submit').disabled = true;
+  el('#passphrase').disabled = true; // lock after submit to avoid mismatch
   const { ciphertext, iv, salt } = await encryptText(text, passphrase);
   await fetch(api('/api/answer'), {
     method:'POST', headers: { 'Content-Type':'application/json' },
-    body: JSON.stringify({ 
-      questionId: state.questionId, 
-      userId: getMeId(),   // stable identity
-      ciphertext, iv, salt 
-    })
+    body: JSON.stringify({ questionId: state.questionId, userId: getMeId(), ciphertext, iv, salt })
   });
-  state.submitted = true; 
-  el('#status').textContent = 'Answer locked. Waiting for your partner…';
+  state.submitted = true; el('#status').textContent = 'Answer locked. Waiting for your partner…';
 }
-
 async function revealAnswers(){
   const passphrase = el('#passphrase').value.trim();
   const myId = getMeId();
   const { answers } = await fetch(api(`/api/answers/${state.questionId}`)).then(r=>r.json());
   if(answers.length < 2) return;
   let myText = '', partnerText = '';
+  let failedDecrypts = 0;
   for (const a of answers) {
     try { 
       const plain = await decryptText(a.ciphertext, a.iv, a.salt, passphrase);
       if (a.userId === myId) myText = plain; else partnerText = plain;
-    } catch(e){}
+    } catch(e){ failedDecrypts++; }
   }
-  if(!myText && !partnerText){ 
-    el('#status').textContent = 'Could not decrypt. Did you both type the same passphrase?'; 
-    return; 
+  if (failedDecrypts > 0) {
+    el('#status').textContent = 'Passphrases don’t match. Make sure you both used the exact same passphrase.';
+  } else {
+    el('#status').textContent = '';
   }
   el('#yourAns').textContent = myText || '(not found)';
   el('#partnerAns').textContent = partnerText || '(not found)';
-  el('#reveal').classList.remove('hidden'); 
-  el('#status').textContent = '';
+  el('#reveal').classList.remove('hidden'); el('#status').textContent = '';
 }
-
 async function newQuestion(){
-  const t = prompt('Type a new question for this room:'); 
-  if (!t) return;
-  await fetch(api(`/api/room/${state.roomId}/question`), { 
-    method:'POST', headers:{ 'Content-Type':'application/json' }, 
-    body: JSON.stringify({ text: t }) 
-  });
+  const t = prompt('Type a new question for this room:'); if (!t) return;
+  await fetch(api(`/api/room/${state.roomId}/question`), { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ text: t }) });
 }
-
 document.addEventListener('DOMContentLoaded', () => {
   el('#createRoom').addEventListener('click', createRoom);
   el('#joinRoom').addEventListener('click', joinRoom);
