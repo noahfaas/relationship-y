@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "🛠️  Generating Relationship-y source tree..."
+echo "🛠️  Generating Relationship-y source tree (hearts version)..."
 
 mkdir -p server web docker data
 
@@ -171,8 +171,7 @@ app.post('/api/answer', (req, res) => {
   stmtInsertAnswer.run(id, questionId, userId, Buffer.from(ciphertext, 'base64'), Buffer.from(iv, 'base64'), Buffer.from(salt, 'base64'), Date.now());
 
   // Only signal "ready" once there are answers from two *distinct* users
-  const distinct = db.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM answers WHERE question_id = ?')
-                     .get(questionId).c;
+  const distinct = db.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM answers WHERE question_id = ?').get(questionId).c;
   if (distinct >= 2) {
     const qRow = db.prepare('SELECT room_id FROM questions WHERE id = ?').get(questionId);
     broadcastRoom(qRow.room_id, { type: 'readyToReveal', questionId });
@@ -245,7 +244,11 @@ cat > web/index.html <<'HTML'
         <div id="roomArea" class="hidden">
           <div class="secret-row">
             <input id="passphrase" placeholder="Shared passphrase (keep private)" autocomplete="off">
-            <input id="userId" placeholder="Your nickname" autocomplete="off">
+            <div class="identity">
+              <button id="heartBlue" class="heart-btn heart-blue" aria-pressed="false" title="Be the blue heart">💙</button>
+              <button id="heartYellow" class="heart-btn heart-yellow" aria-pressed="false" title="Be the yellow heart">💛</button>
+              <span id="identityHint" class="hint">Pick your heart</span>
+            </div>
           </div>
 
           <div class="question">
@@ -264,11 +267,11 @@ cat > web/index.html <<'HTML'
             <h3>Both of you answered! 💌</h3>
             <div class="answers">
               <div>
-                <h4>You</h4>
+                <h4 id="youLabel">You</h4>
                 <pre id="yourAns"></pre>
               </div>
               <div>
-                <h4>Partner</h4>
+                <h4 id="partnerLabel">Partner</h4>
                 <pre id="partnerAns"></pre>
               </div>
             </div>
@@ -291,6 +294,7 @@ HTML
 cat > web/styles.css <<'CSS'
 :root{
   --blue:#2b6ef0;
+  --blue-ink:#1d3ea1;
   --ink:#111;
   --cream:#fffdf7;
   --pink:#ff6ea1;
@@ -319,7 +323,12 @@ main{ display:flex; justify-content:center; padding:20px }
 input, textarea{ width:100%; padding:12px 14px; border:2px solid #0000; background:#fff; border-radius:14px; box-shadow: var(--shadow); outline:none; }
 input:focus, textarea:focus{ border-color: var(--blue); }
 textarea{ min-height:120px; resize:vertical; }
-.secret-row{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin:12px 0; }
+.secret-row{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin:12px 0; align-items: center; }
+.identity{ display:flex; align-items:center; gap:10px; }
+.heart-btn{ font-size:22px; padding:8px 12px; border-radius:999px; border:2px solid transparent; background:#fff; cursor:pointer; box-shadow: var(--shadow); }
+.heart-blue[aria-pressed="true"]{ border-color: var(--blue-ink); background:#e7efff; }
+.heart-yellow[aria-pressed="true"]{ border-color: #b69000; background:#fff6cf; }
+.hint{ font-size:13px; opacity:.7 }
 .question{ margin:14px 0; background: linear-gradient(135deg, var(--mint), #fef0f4); border-radius:16px; padding:14px; }
 #qText{ font-weight:600; }
 .actions{ display:flex; gap:10px; align-items:center; margin-top:10px; }
@@ -352,6 +361,28 @@ function getMeId() {
     localStorage.setItem(ME_KEY, id);
   }
   return id;
+}
+
+// Heart identity (purely for UI labels)
+const HEART_KEY = 'heart';
+function setHeart(color) {
+  localStorage.setItem(HEART_KEY, color);
+  updateHeartUI();
+}
+function getHeart() {
+  return localStorage.getItem(HEART_KEY) || '';
+}
+function updateHeartUI() {
+  const h = getHeart();
+  const blue = document.getElementById('heartBlue');
+  const yellow = document.getElementById('heartYellow');
+  if (!blue || !yellow) return;
+  blue.setAttribute('aria-pressed', String(h === 'blue'));
+  yellow.setAttribute('aria-pressed', String(h === 'yellow'));
+  document.getElementById('youLabel').textContent = h === 'yellow' ? 'You 💛' : 'You 💙';
+  document.getElementById('partnerLabel').textContent = h === 'yellow' ? 'Partner 💙' : 'Partner 💛';
+  const hint = document.getElementById('identityHint');
+  if (hint) hint.textContent = h ? 'Identity set' : 'Pick your heart';
 }
 
 async function deriveKey(passphrase, saltB64){
@@ -415,6 +446,7 @@ async function loadQuestion(){ await fetchQuestionText(); }
 async function submitAnswer(){
   const passphrase = el('#passphrase').value.trim();
   if(!passphrase) return alert('Add a shared passphrase first');
+  if(!getHeart()) return alert('Pick your heart (💙 or 💛) before submitting');
   const text = el('#answer').value.trim(); if(!text) return alert('Write an answer');
   el('#submit').disabled = true;
   el('#passphrase').disabled = true; // lock after submit to avoid mismatch
@@ -456,6 +488,13 @@ document.addEventListener('DOMContentLoaded', () => {
   el('#joinRoom').addEventListener('click', joinRoom);
   el('#submit').addEventListener('click', submitAnswer);
   el('#newQ').addEventListener('click', newQuestion);
+
+  // Heart selectors
+  const blue = document.getElementById('heartBlue');
+  const yellow = document.getElementById('heartYellow');
+  blue?.addEventListener('click', () => setHeart('blue'));
+  yellow?.addEventListener('click', () => setHeart('yellow'));
+  updateHeartUI();
 });
 JS
 
@@ -474,6 +513,11 @@ Local run (optional):
   npm run dev
 Frontend: http://localhost:5173
 API/WS:  http://localhost:3000
+
+Notes:
+- Choose your identity with 💙 or 💛. This affects labels only.
+- Identity on the server is a hidden stable ID stored in localStorage.
+- Server reveals answers only when two distinct users have answered.
 MD
 
 # ---------- .gitignore ----------
@@ -486,4 +530,4 @@ data
 .env
 GIT
 
-echo "✅ Relationship-y source tree generated."
+echo "✅ Relationship-y (hearts version) source tree generated."
