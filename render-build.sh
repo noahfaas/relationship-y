@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "🛠️  Generating Relationship-y source tree (hearts version)..."
+echo "🛠️  Generating Relationship-y (hearts + polling) ..."
 
 mkdir -p server web docker data
 
@@ -191,7 +191,7 @@ app.get('/api/answers/:questionId', (req, res) => {
     iv: r.iv.toString('base64'),
     salt: r.salt.toString('base64')
   }));
-  res.json({ answers: rows });
+  res.json({ answers: rows, distinctUsers: rows.length });
 });
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
@@ -224,7 +224,7 @@ cat > web/index.html <<'HTML'
     <div class="clouds"></div>
     <header>
       <h1>Relationship-y <span class="heart">❤️</span></h1>
-      <p class="tag">A cozy space for two</p>
+      <p class="tag">Baby and Baby-y's Relationship App</p>
     </header>
 
     <main>
@@ -296,8 +296,6 @@ cat > web/styles.css <<'CSS'
   --blue:#2b6ef0;
   --blue-ink:#1d3ea1;
   --ink:#111;
-  --cream:#fffdf7;
-  --pink:#ff6ea1;
   --cloud:#eef4ff;
   --mint:#c9f3ef;
   --card:#ffffffcc;
@@ -316,8 +314,6 @@ main{ display:flex; justify-content:center; padding:20px }
 .card{ width:min(760px, 94vw); background:var(--card); border-radius:20px; box-shadow: var(--shadow); backdrop-filter: blur(8px); padding:22px; }
 .brand-row{ display:flex; gap:8px; justify-content:flex-end; }
 .badge{ font-size:20px; padding:6px 10px; border-radius:999px; background:#fff; box-shadow: var(--shadow); }
-.badge-spacepup{ border:2px dashed var(--blue); }
-.badge-beagle{ border:2px dashed #222; }
 .room-controls{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:6px; }
 .or{ opacity:.6 }
 input, textarea{ width:100%; padding:12px 14px; border:2px solid #0000; background:#fff; border-radius:14px; box-shadow: var(--shadow); outline:none; }
@@ -350,7 +346,7 @@ function api(path) {
   return base + path;
 }
 
-let state = { roomId: null, ws: null, questionId: null, submitted: false };
+let state = { roomId: null, ws: null, questionId: null, submitted: false, pollTimer: null };
 
 // --- Stable hidden ID stored in localStorage ---
 const ME_KEY = 'meId';
@@ -363,22 +359,16 @@ function getMeId() {
   return id;
 }
 
-// Heart identity (purely for UI labels)
+// Heart identity (UI labels only)
 const HEART_KEY = 'heart';
-function setHeart(color) {
-  localStorage.setItem(HEART_KEY, color);
-  updateHeartUI();
-}
-function getHeart() {
-  return localStorage.getItem(HEART_KEY) || '';
-}
+function setHeart(color) { localStorage.setItem(HEART_KEY, color); updateHeartUI(); }
+function getHeart() { return localStorage.getItem(HEART_KEY) || ''; }
 function updateHeartUI() {
   const h = getHeart();
   const blue = document.getElementById('heartBlue');
   const yellow = document.getElementById('heartYellow');
-  if (!blue || !yellow) return;
-  blue.setAttribute('aria-pressed', String(h === 'blue'));
-  yellow.setAttribute('aria-pressed', String(h === 'yellow'));
+  blue?.setAttribute('aria-pressed', String(h === 'blue'));
+  yellow?.setAttribute('aria-pressed', String(h === 'yellow'));
   document.getElementById('youLabel').textContent = h === 'yellow' ? 'You 💛' : 'You 💙';
   document.getElementById('partnerLabel').textContent = h === 'yellow' ? 'Partner 💙' : 'Partner 💛';
   const hint = document.getElementById('identityHint');
@@ -432,17 +422,38 @@ function connectWS(){
   state.ws.addEventListener('message', ev => {
     const msg = JSON.parse(ev.data);
     if (msg.type === 'newQuestion') {
-      state.submitted = false; el('#answer').value = ''; el('#reveal').classList.add('hidden');
+      resetRevealUI();
       state.questionId = msg.questionId; fetchQuestionText();
     }
-    if (msg.type === 'readyToReveal' && msg.questionId === state.questionId) revealAnswers();
+    if (msg.type === 'readyToReveal' && msg.questionId === state.questionId) {
+      revealAnswers();
+    }
   });
+}
+function resetRevealUI(){
+  state.submitted = false; el('#answer').value = ''; el('#reveal').classList.add('hidden');
+  el('#status').textContent = '';
+  if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
 }
 async function fetchQuestionText(){
   const q = await fetch(api(`/api/room/${state.roomId}/question`)).then(r=>r.json());
   state.questionId = q.questionId; el('#qText').textContent = q.text;
 }
-async function loadQuestion(){ await fetchQuestionText(); }
+async function loadQuestion(){ await fetchQuestionText(); startPolling(); }
+
+function startPolling(){
+  if (state.pollTimer) clearInterval(state.pollTimer);
+  state.pollTimer = setInterval(async () => {
+    if (!state.questionId) return;
+    const res = await fetch(api(`/api/answers/${state.questionId}`)).then(r=>r.json()).catch(()=>null);
+    if (!res) return;
+    if (res.distinctUsers >= 2) {
+      clearInterval(state.pollTimer); state.pollTimer = null;
+      revealAnswers();
+    }
+  }, 1500);
+}
+
 async function submitAnswer(){
   const passphrase = el('#passphrase').value.trim();
   if(!passphrase) return alert('Add a shared passphrase first');
@@ -456,12 +467,15 @@ async function submitAnswer(){
     body: JSON.stringify({ questionId: state.questionId, userId: getMeId(), ciphertext, iv, salt })
   });
   state.submitted = true; el('#status').textContent = 'Answer locked. Waiting for your partner…';
+  startPolling(); // fallback even if WS event is missed
 }
+
 async function revealAnswers(){
   const passphrase = el('#passphrase').value.trim();
   const myId = getMeId();
   const { answers } = await fetch(api(`/api/answers/${state.questionId}`)).then(r=>r.json());
-  if(answers.length < 2) return;
+  if((answers?.length || 0) < 2) return;
+
   let myText = '', partnerText = '';
   let failedDecrypts = 0;
   for (const a of answers) {
@@ -477,12 +491,14 @@ async function revealAnswers(){
   }
   el('#yourAns').textContent = myText || '(not found)';
   el('#partnerAns').textContent = partnerText || '(not found)';
-  el('#reveal').classList.remove('hidden'); el('#status').textContent = '';
+  el('#reveal').classList.remove('hidden'); 
 }
+
 async function newQuestion(){
   const t = prompt('Type a new question for this room:'); if (!t) return;
   await fetch(api(`/api/room/${state.roomId}/question`), { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ text: t }) });
 }
+
 document.addEventListener('DOMContentLoaded', () => {
   el('#createRoom').addEventListener('click', createRoom);
   el('#joinRoom').addEventListener('click', joinRoom);
@@ -490,10 +506,8 @@ document.addEventListener('DOMContentLoaded', () => {
   el('#newQ').addEventListener('click', newQuestion);
 
   // Heart selectors
-  const blue = document.getElementById('heartBlue');
-  const yellow = document.getElementById('heartYellow');
-  blue?.addEventListener('click', () => setHeart('blue'));
-  yellow?.addEventListener('click', () => setHeart('yellow'));
+  document.getElementById('heartBlue')?.addEventListener('click', () => setHeart('blue'));
+  document.getElementById('heartYellow')?.addEventListener('click', () => setHeart('yellow'));
   updateHeartUI();
 });
 JS
@@ -508,16 +522,17 @@ JS
 cat > README.md <<'MD'
 Relationship-y ❤️ — End-to-end encrypted couples Q&A web app.
 
-Local run (optional):
+Local run:
   npm i
   npm run dev
 Frontend: http://localhost:5173
 API/WS:  http://localhost:3000
 
 Notes:
-- Choose your identity with 💙 or 💛. This affects labels only.
-- Identity on the server is a hidden stable ID stored in localStorage.
-- Server reveals answers only when two distinct users have answered.
+- Choose your identity with 💙 or 💛 (labels only).
+- Identity is a hidden stable ID in localStorage.
+- Server reveals only when answers come from two distinct users.
+- Client now polls every 1.5s in case WebSocket events are missed.
 MD
 
 # ---------- .gitignore ----------
@@ -530,4 +545,4 @@ data
 .env
 GIT
 
-echo "✅ Relationship-y (hearts version) source tree generated."
+echo "✅ Relationship-y (hearts + polling) generated."
