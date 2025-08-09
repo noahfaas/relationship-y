@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "🛠️  Generating Relationship-y (romantic + persistence fixes) ..."
+echo "🛠️  Generating Relationship-y (no badges + random cute critters) ..."
 
 mkdir -p server web docker data
 
@@ -9,7 +9,7 @@ mkdir -p server web docker data
 cat > package.json <<'JSON'
 {
   "name": "relationship-y",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "private": true,
   "description": "A tiny end-to-end encrypted couples Q&A web app.",
   "license": "MIT",
@@ -122,7 +122,7 @@ const QUESTION_BANK = [
   "What would you write in a tiny love note today?"
 ];
 
-// ---- WS setup (optional, we also poll) ----
+// ---- WS (we also poll) ----
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 const roomSockets = new Map(); // roomId -> Set(ws)
@@ -141,9 +141,7 @@ wss.on('connection', (ws) => {
     } catch(e) {}
   });
   ws.on('close', () => {
-    if (roomId && roomSockets.has(roomId)) {
-      roomSockets.get(roomId).delete(ws);
-    }
+    if (roomId && roomSockets.has(roomId)) roomSockets.get(roomId).delete(ws);
   });
 });
 
@@ -281,7 +279,7 @@ cat > web/index.html <<'HTML'
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <title>Relationship-y ❤️</title>
+  <title>Relationship-y 💙💛</title>
   <link rel="stylesheet" href="./styles.css" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws: wss: http: https:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'none'; form-action 'self';">
 </head>
@@ -289,18 +287,15 @@ cat > web/index.html <<'HTML'
   <div class="sky">
     <div class="stars"></div>
     <div class="hearts"></div>
+    <div id="critters" class="critters"></div>
     <header>
-      <h1>Relationship-y <span class="heart">❤️</span></h1>
+      <h1>Relationship-y <span class="heart">💙💛</span></h1>
       <p class="tag">Baby and Baby-y's home for connection.</p>
     </header>
 
     <main>
       <section class="card">
-        <div class="brand-row">
-          <div class="badge badge-spacepup" title="space pup">🛸🐶</div>
-          <div class="badge badge-beagle" title="beagle in clouds">☁️🐾</div>
-        </div>
-
+        <!-- badges removed -->
         <div class="room-controls">
           <button id="createRoom">Create Room</button>
           <div class="or">or</div>
@@ -381,10 +376,8 @@ cat > web/styles.css <<'CSS'
 :root{
   --ink:#1a1025;
   --rose:#ff6ea1;
-  --rose-2:#ffb3c6;
   --mauve:#7861ff;
   --mauve-2:#b9a8ff;
-  --cream:#fff7fb;
   --cloud:#f2e9ff;
   --card:#ffffffd8;
   --shadow: 0 16px 40px rgba(0,0,0,.18);
@@ -396,7 +389,7 @@ body,html{ margin:0; height:100%; font-family: ui-rounded, system-ui, -apple-sys
 .sky{ min-height:100%; position:relative; overflow:hidden;
   background: radial-gradient(1200px 800px at 50% -40%, var(--mauve-2) 0%, #32235c 55%, #0d0620 100%);
 }
-.stars, .hearts{ position:absolute; inset:0; pointer-events:none }
+.stars, .hearts, .critters{ position:absolute; inset:0; pointer-events:none }
 .stars{
   background-image:
     radial-gradient(#fff 1px, transparent 1px),
@@ -405,21 +398,23 @@ body,html{ margin:0; height:100%; font-family: ui-rounded, system-ui, -apple-sys
 }
 .hearts{
   background-image:
-    radial-gradient(closest-side, rgba(255,110,161,.25), rgba(255,110,161,0) 80%),
+    radial-gradient(closest-side, rgba(255,110,161,.22), rgba(255,110,161,0) 80%),
     radial-gradient(closest-side, rgba(185,168,255,.18), rgba(185,168,255,0) 80%);
   background-size: 280px 280px, 360px 360px;
   background-position: 20% 30%, 80% 20%;
   mix-blend-mode: screen;
+}
+.critters{ overflow:hidden; }
+.critter{ position:absolute; opacity:.9; animation: floaty 8s ease-in-out infinite; filter: drop-shadow(0 6px 10px rgba(0,0,0,.25)); }
+@keyframes floaty{
+  0%,100%{ transform: translateY(0px) }
+  50%{ transform: translateY(-10px) }
 }
 header{ text-align:center; padding:44px 20px; color:#fff; }
 h1{ margin:0; font-size:44px; letter-spacing:.6px }
 .tag{ margin:8px 0 0; opacity:.9; font-weight:600 }
 main{ display:flex; justify-content:center; padding:22px }
 .card{ width:min(900px, 94vw); background:var(--card); border-radius:22px; box-shadow: var(--shadow); backdrop-filter: blur(10px); padding:22px; }
-.brand-row{ display:flex; gap:8px; justify-content:flex-end; }
-.badge{ font-size:20px; padding:6px 10px; border-radius:999px; background:#fff; box-shadow: var(--shadow); }
-.badge-spacepup{ border:2px dashed var(--mauve); }
-.badge-beagle{ border:2px dashed #222; }
 .room-controls{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:6px; }
 .or{ color:#fff; background:var(--mauve); padding:4px 8px; border-radius:999px; font-weight:700 }
 input, textarea{ width:100%; padding:12px 14px; border:2px solid #0000; background:#fff; border-radius:14px; box-shadow: var(--shadow); outline:none; }
@@ -482,12 +477,93 @@ function updateHeartUI() {
   const you = document.getElementById('youLabel');
   const partner = document.getElementById('partnerLabel');
   if (you && partner) {
-    // Blue is Baby, Yellow is Baby-y
     if (h === 'yellow') { you.textContent = 'Baby-y 💛'; partner.textContent = 'Baby 💙'; }
     else { you.textContent = 'Baby 💙'; partner.textContent = 'Baby-y 💛'; }
   }
   const hint = document.getElementById('identityHint');
   if (hint) hint.textContent = h ? 'Identity set' : 'Pick your heart';
+}
+
+// ---- Random cute critters (original SVGs, not IP) ----
+function pick(a){ return a[Math.floor(Math.random()*a.length)]; }
+function rand(min,max){ return Math.random()*(max-min)+min; }
+function renderCritters(){
+  const host = document.getElementById('critters');
+  if (!host) return;
+
+  // Blue alien (3 poses)
+  const aliens = [
+`<svg width="120" height="110" viewBox="0 0 120 110" class="critter" xmlns="http://www.w3.org/2000/svg">
+  <ellipse cx="60" cy="55" rx="34" ry="30" fill="#64a8ff"/>
+  <ellipse cx="30" cy="50" rx="18" ry="12" fill="#64a8ff"/>
+  <ellipse cx="90" cy="50" rx="18" ry="12" fill="#64a8ff"/>
+  <circle cx="48" cy="55" r="8" fill="#0d1b3a"/><circle cx="72" cy="55" r="8" fill="#0d1b3a"/>
+  <circle cx="49" cy="53" r="2" fill="#bfe1ff"/><circle cx="73" cy="53" r="2" fill="#bfe1ff"/>
+  <path d="M46 75 Q60 85 74 75" stroke="#0d1b3a" stroke-width="4" fill="none" stroke-linecap="round"/>
+</svg>`,
+`<svg width="120" height="110" viewBox="0 0 120 110" class="critter" xmlns="http://www.w3.org/2000/svg">
+  <ellipse cx="60" cy="55" rx="34" ry="30" fill="#5aa1ff"/>
+  <ellipse cx="25" cy="45" rx="12" ry="16" fill="#5aa1ff"/>
+  <ellipse cx="95" cy="45" rx="12" ry="16" fill="#5aa1ff"/>
+  <circle cx="50" cy="58" r="7" fill="#0d1b3a"/><circle cx="70" cy="58" r="7" fill="#0d1b3a"/>
+  <path d="M48 70 Q60 63 72 70" stroke="#0d1b3a" stroke-width="4" fill="none" stroke-linecap="round"/>
+</svg>`,
+`<svg width="120" height="110" viewBox="0 0 120 110" class="critter" xmlns="http://www.w3.org/2000/svg">
+  <ellipse cx="60" cy="55" rx="32" ry="28" fill="#6cb2ff"/>
+  <ellipse cx="32" cy="60" rx="10" ry="14" fill="#6cb2ff"/>
+  <ellipse cx="88" cy="60" rx="10" ry="14" fill="#6cb2ff"/>
+  <circle cx="52" cy="55" r="6" fill="#0d1b3a"/><circle cx="68" cy="55" r="6" fill="#0d1b3a"/>
+  <path d="M50 72 Q60 80 70 72" stroke="#0d1b3a" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+</svg>`
+  ];
+
+  // Black & white dog (3 poses)
+  const dogs = [
+`<svg width="130" height="110" viewBox="0 0 130 110" class="critter" xmlns="http://www.w3.org/2000/svg">
+  <ellipse cx="70" cy="60" rx="38" ry="28" fill="#fff"/>
+  <ellipse cx="90" cy="40" rx="12" ry="18" fill="#111"/>
+  <ellipse cx="50" cy="40" rx="12" ry="18" fill="#111"/>
+  <circle cx="60" cy="60" r="6" fill="#111"/><circle cx="80" cy="60" r="6" fill="#111"/>
+  <circle cx="70" cy="70" r="5" fill="#111"/>
+</svg>`,
+`<svg width="130" height="110" viewBox="0 0 130 110" class="critter" xmlns="http://www.w3.org/2000/svg">
+  <ellipse cx="65" cy="62" rx="36" ry="26" fill="#fff"/>
+  <ellipse cx="85" cy="45" rx="10" ry="14" fill="#111"/>
+  <ellipse cx="45" cy="45" rx="10" ry="14" fill="#111"/>
+  <circle cx="58" cy="60" r="6" fill="#111"/><circle cx="74" cy="60" r="6" fill="#111"/>
+  <rect x="63" y="68" width="4" height="8" rx="2" fill="#ff6ea1"/>
+</svg>`,
+`<svg width="130" height="110" viewBox="0 0 130 110" class="critter" xmlns="http://www.w3.org/2000/svg">
+  <ellipse cx="68" cy="60" rx="34" ry="24" fill="#fff"/>
+  <ellipse cx="88" cy="48" rx="11" ry="15" fill="#111"/>
+  <ellipse cx="48" cy="48" rx="11" ry="15" fill="#111"/>
+  <circle cx="60" cy="58" r="5.5" fill="#111"/><circle cx="76" cy="58" r="5.5" fill="#111"/>
+  <path d="M60 72 Q68 76 76 72" stroke="#111" stroke-width="3" fill="none" stroke-linecap="round"/>
+</svg>`
+  ];
+
+  const alien = document.createElement('div');
+  alien.innerHTML = pick(aliens);
+  const dog = document.createElement('div');
+  dog.innerHTML = pick(dogs);
+
+  const a = alien.firstChild;
+  const d = dog.firstChild;
+
+  // Random positions
+  Object.assign(a.style, {
+    left: `${rand(5,25)}%`,
+    top: `${rand(8,28)}%`,
+    transform: `scale(${rand(0.9,1.15)}) rotate(${rand(-6,6)}deg)`
+  });
+  Object.assign(d.style, {
+    right: `${rand(5,18)}%`,
+    bottom: `${rand(8,20)}%`,
+    transform: `scale(${rand(0.9,1.1)}) rotate(${rand(-4,4)}deg)`
+  });
+
+  host.appendChild(a);
+  host.appendChild(d);
 }
 
 // ---- crypto helpers ----
@@ -530,11 +606,20 @@ function showTab(name){
 
 function resetRevealUI(){
   state.submitted = false;
-  // Clear any preserved plaintext value
-  const ans = el('#answer'); if (ans) { ans.value = ''; ans.disabled = false; }
+  const ta = el('#answer'); if (ta) { ta.value = ''; ta.disabled = false; }
+  el('#submit').disabled = false;
+  el('#passphrase').disabled = false;
   el('#reveal').classList.add('hidden');
   el('#status').textContent = '';
   if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+}
+
+function applyNewQuestion(payload){
+  if (!payload) return;
+  state.questionId = payload.questionId;
+  el('#qText').textContent = payload.text;
+  resetRevealUI();
+  startPolling();
 }
 
 // ---- room flow ----
@@ -557,8 +642,7 @@ function connectWS(){
   state.ws.addEventListener('message', ev => {
     const msg = JSON.parse(ev.data);
     if (msg.type === 'newQuestion') {
-      resetRevealUI();
-      state.questionId = msg.questionId; fetchQuestionText();
+      fetchQuestionText().then(() => resetRevealUI());
     }
     if (msg.type === 'readyToReveal' && msg.questionId === state.questionId) revealAnswers();
   });
@@ -567,10 +651,8 @@ function connectWS(){
 async function fetchQuestionText(){
   const q = await fetch(api(`/api/room/${state.roomId}/question`)).then(r=>r.json());
   state.questionId = q.questionId; el('#qText').textContent = q.text;
-  // When loading a question, detect if we already answered and re-lock view
   await checkMySubmission();
 }
-
 async function loadQuestion(){ await fetchQuestionText(); startPolling(); }
 
 // Polling fallback
@@ -584,7 +666,7 @@ function startPolling(){
   }, 1500);
 }
 
-// Detect if I have already answered this question (so reloads persist the lock)
+// Detect if I have already answered this question
 async function checkMySubmission(){
   const myId = getMeId();
   const passphrase = el('#passphrase').value.trim();
@@ -593,21 +675,16 @@ async function checkMySubmission(){
   const distinct = ans.distinctUsers || (ans.answers || []).length;
 
   if (mine) {
-    // Lock UI like after submit; don't show plaintext
     el('#submit').disabled = true;
     el('#passphrase').disabled = true;
-    const ta = el('#answer'); if (ta) { ta.value = ''; ta.disabled = true; }
+    const ta = el('#answer'); if (ta) { ta.disabled = true; ta.value=''; }
     el('#status').textContent = 'Answer locked. Waiting for your partner…';
   } else {
-    // Ensure fields are enabled if we haven't answered
     el('#submit').disabled = false;
     const ta = el('#answer'); if (ta) ta.disabled = false;
     el('#status').textContent = '';
   }
-
-  if (distinct >= 2 && passphrase) {
-    await revealAnswers();
-  }
+  if (distinct >= 2 && passphrase) await revealAnswers();
 }
 
 // ---- ask actions ----
@@ -618,8 +695,8 @@ async function submitAnswer(){
   const text = el('#answer').value.trim(); if(!text) return alert('Write an answer');
 
   el('#submit').disabled = true;
-  el('#passphrase').disabled = true; // lock after submit
-  const ta = el('#answer'); if (ta) { ta.disabled = true; ta.value = ''; } // clear plaintext
+  el('#passphrase').disabled = true;
+  const ta = el('#answer'); if (ta) { ta.disabled = true; ta.value = ''; }
 
   const { ciphertext, iv, salt } = await encryptText(text, passphrase);
   await fetch(api('/api/answer'), {
@@ -644,11 +721,8 @@ async function revealAnswers(){
       if (a.userId === myId) myText = plain; else partnerText = plain;
     } catch(e){ failedDecrypts++; }
   }
-  if (failedDecrypts > 0) {
-    el('#status').textContent = 'Passphrases don’t match. Make sure you both used the exact same passphrase.';
-  } else {
-    el('#status').textContent = '';
-  }
+  if (failedDecrypts > 0) el('#status').textContent = 'Passphrases don’t match. Make sure you both used the exact same passphrase.';
+  else el('#status').textContent = '';
   el('#yourAns').textContent = myText || '(not found)';
   el('#partnerAns').textContent = partnerText || '(not found)';
   el('#reveal').classList.remove('hidden'); 
@@ -656,9 +730,15 @@ async function revealAnswers(){
 
 async function newQuestion(){
   const t = prompt('Type a new question for this room:'); if (!t) return;
-  await fetch(api(`/api/room/${state.roomId}/question`), { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ text: t }) });
+  const r = await fetch(api(`/api/room/${state.roomId}/question`), {
+    method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ text: t })
+  }).then(r=>r.json());
+  applyNewQuestion(r);
 }
-async function randomQuestion(){ await fetch(api(`/api/room/${state.roomId}/random`), { method:'POST' }); }
+async function randomQuestion(){
+  const r = await fetch(api(`/api/room/${state.roomId}/random`), { method:'POST' }).then(r=>r.json());
+  applyNewQuestion(r);
+}
 
 // ---- inbox & history ----
 function fmtDate(ts){ const d=new Date(ts); return d.toLocaleString(); }
@@ -673,14 +753,7 @@ async function loadInbox(){
     const btn = document.createElement('button');
     btn.textContent = 'Answer';
     btn.className = 'ghost';
-    btn.onclick = async () => {
-      state.questionId = it.id;
-      el('#qText').textContent = it.text;
-      showTab('ask');
-      resetRevealUI();
-      await checkMySubmission(); // lock immediately if already answered earlier
-      startPolling();
-    };
+    btn.onclick = async () => applyNewQuestion({ questionId: it.id, text: it.text });
     li.appendChild(btn);
     ul.appendChild(li);
   }
@@ -696,12 +769,7 @@ async function loadHistory(){
     const btn = document.createElement('button');
     btn.textContent = 'View';
     btn.className = 'ghost';
-    btn.onclick = async () => {
-      state.questionId = it.id;
-      el('#qText').textContent = it.text;
-      showTab('ask');
-      await revealAnswers();
-    };
+    btn.onclick = async () => { applyNewQuestion({ questionId: it.id, text: it.text }); await revealAnswers(); };
     li.appendChild(btn);
     ul.appendChild(li);
   }
@@ -709,12 +777,14 @@ async function loadHistory(){
 
 // ---- boot ----
 document.addEventListener('DOMContentLoaded', () => {
-  el('#answer').value = ''; // prevent browser restoring plaintext
-  el('#createRoom').addEventListener('click', createRoom);
-  el('#joinRoom').addEventListener('click', joinRoom);
-  el('#submit').addEventListener('click', submitAnswer);
-  el('#newQ').addEventListener('click', newQuestion);
-  el('#randomQ').addEventListener('click', randomQuestion);
+  renderCritters();
+
+  document.querySelector('#answer').value = '';
+  document.getElementById('createRoom').addEventListener('click', createRoom);
+  document.getElementById('joinRoom').addEventListener('click', joinRoom);
+  document.getElementById('submit').addEventListener('click', submitAnswer);
+  document.getElementById('newQ').addEventListener('click', newQuestion);
+  document.getElementById('randomQ').addEventListener('click', randomQuestion);
 
   document.getElementById('heartBlue')?.addEventListener('click', () => setHeart('blue'));
   document.getElementById('heartYellow')?.addEventListener('click', () => setHeart('yellow'));
@@ -732,24 +802,19 @@ JS
 
 # ---------- README ----------
 cat > README.md <<'MD'
-Relationship-y ❤️ — End-to-end encrypted couples Q&A web app.
+Relationship-y 💙💛 — End-to-end encrypted couples Q&A web app.
 
-### Local run
+This build:
+- Removes the old “space pup / cloud paws” badges.
+- Adds original, **non-IP** SVG critters (blue alien + black/white dog) that
+  appear in random poses and positions on each load.
+- Keeps all features: hearts identity, random/custom Q, inbox, history, WS+polling, persistence.
+
+Local run:
   npm i
   npm run dev
 Frontend: http://localhost:5173
 API/WS:  http://localhost:3000
-
-### Features
-- Heart identity picker (💙 Baby / 💛 Baby-y)
-- Stable hidden identity per browser (localStorage)
-- Random question from a larger bank
-- Inbox: questions your partner answered that you haven't yet
-- History: questions you both answered (click to view answers)
-- WebSocket + polling fallback for reveals
-- Reload persistence: if you've already answered a question, the app relocks your view automatically (no plaintext left in the box)
-- Romantic UI theme
-
 MD
 
 # ---------- .gitignore ----------
@@ -762,4 +827,4 @@ data
 .env
 GIT
 
-echo "✅ Relationship-y (romantic + persistence fixes) generated."
+echo "✅ Relationship-y (no badges + random critters) generated."
