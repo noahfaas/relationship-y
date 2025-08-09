@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "🛠️  Generating Relationship-y (hearts + inbox + history + persistence) ..."
+echo "🛠️  Generating Relationship-y (romantic + persistence fixes) ..."
 
 mkdir -p server web docker data
 
@@ -9,7 +9,7 @@ mkdir -p server web docker data
 cat > package.json <<'JSON'
 {
   "name": "relationship-y",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "A tiny end-to-end encrypted couples Q&A web app.",
   "license": "MIT",
@@ -90,7 +90,7 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 
-// ---- question bank (extend anytime) ----
+// ---- question bank ----
 const QUESTION_BANK = [
   "What’s one small thing your partner did recently that made you smile?",
   "What’s a tiny ritual you want to start together?",
@@ -111,7 +111,15 @@ const QUESTION_BANK = [
   "What tiny habit would make our place cozier?",
   "Which future trip are you daydreaming about?",
   "What do you want more of this month?",
-  "What’s a question you wish I’d ask you more?"
+  "What’s a question you wish I’d ask you more?",
+  "What’s a tradition you want us to start this season?",
+  "What’s one way I can support you this week?",
+  "What’s a little adventure we could do this weekend?",
+  "What makes you feel adored?",
+  "What’s your favorite slow morning together?",
+  "What are we really good at together?",
+  "Which small thing would make our evenings nicer?",
+  "What would you write in a tiny love note today?"
 ];
 
 // ---- WS setup (optional, we also poll) ----
@@ -143,9 +151,7 @@ function broadcastRoom(roomId, payload) {
   const set = roomSockets.get(roomId);
   if (!set) return;
   for (const ws of set) {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(payload));
-    }
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
   }
 }
 
@@ -163,7 +169,6 @@ const stmtInsertAnswer = db.prepare(`
 app.post('/api/room', (_req, res) => {
   const id = nanoid(8).toUpperCase();
   stmtCreateRoom.run(id, Date.now());
-  // create an initial question
   const text = QUESTION_BANK[Math.floor(Math.random()*QUESTION_BANK.length)];
   const qid = nanoid();
   stmtCreateQ.run(qid, id, text, Date.now());
@@ -187,12 +192,12 @@ app.post('/api/room/:roomId/question', (req, res) => {
   res.json({ questionId: qid, text });
 });
 
-// Create a new random question (avoid repeats if possible)
 app.post('/api/room/:roomId/random', (req, res) => {
   const roomId = req.params.roomId;
-  const usedTexts = db.prepare('SELECT text FROM questions WHERE room_id = ?').all(roomId).map(r => r.text);
-  const candidates = QUESTION_BANK.filter(t => !usedTexts.includes(t));
-  const text = (candidates.length ? candidates : QUESTION_BANK)[Math.floor(Math.random()* (candidates.length ? candidates.length : QUESTION_BANK.length))];
+  const used = db.prepare('SELECT text FROM questions WHERE room_id = ?').all(roomId).map(r => r.text);
+  const candidates = QUESTION_BANK.filter(t => !used.includes(t));
+  const arr = candidates.length ? candidates : QUESTION_BANK;
+  const text = arr[Math.floor(Math.random()*arr.length)];
   const qid = nanoid();
   stmtCreateQ.run(qid, roomId, text, Date.now());
   broadcastRoom(roomId, { type: 'newQuestion', questionId: qid });
@@ -205,7 +210,6 @@ app.post('/api/answer', (req, res) => {
   const id = nanoid();
   stmtInsertAnswer.run(id, questionId, userId, Buffer.from(ciphertext, 'base64'), Buffer.from(iv, 'base64'), Buffer.from(salt, 'base64'), Date.now());
 
-  // Only signal "ready" once there are answers from two *distinct* users
   const distinct = db.prepare('SELECT COUNT(DISTINCT user_id) AS c FROM answers WHERE question_id = ?').get(questionId).c;
   if (distinct >= 2) {
     const qRow = db.prepare('SELECT room_id FROM questions WHERE id = ?').get(questionId);
@@ -214,7 +218,6 @@ app.post('/api/answer', (req, res) => {
   res.json({ ok: true });
 });
 
-// Latest answer per user
 app.get('/api/answers/:questionId', (req, res) => {
   const questionId = req.params.questionId;
   const all = stmtGetAnswers.all(questionId).sort((a,b) => a.created_at - b.created_at);
@@ -229,7 +232,6 @@ app.get('/api/answers/:questionId', (req, res) => {
   res.json({ answers: rows, distinctUsers: rows.length });
 });
 
-// Inbox: questions your partner answered that you haven't (requires userId)
 app.get('/api/room/:roomId/questions/unanswered', (req, res) => {
   const { roomId } = req.params;
   const { userId } = req.query;
@@ -247,7 +249,6 @@ app.get('/api/room/:roomId/questions/unanswered', (req, res) => {
   res.json({ items: rows });
 });
 
-// History: questions both answered
 app.get('/api/room/:roomId/questions/history', (req, res) => {
   const { roomId } = req.params;
   const rows = db.prepare(`
@@ -287,10 +288,10 @@ cat > web/index.html <<'HTML'
 <body>
   <div class="sky">
     <div class="stars"></div>
-    <div class="clouds"></div>
+    <div class="hearts"></div>
     <header>
       <h1>Relationship-y <span class="heart">❤️</span></h1>
-      <p class="tag">A cozy space for two</p>
+      <p class="tag">Baby and Baby-y's home for connection.</p>
     </header>
 
     <main>
@@ -311,8 +312,8 @@ cat > web/index.html <<'HTML'
           <div class="secret-row">
             <input id="passphrase" placeholder="Shared passphrase (keep private)" autocomplete="off">
             <div class="identity">
-              <button id="heartBlue" class="heart-btn heart-blue" aria-pressed="false" title="Be the blue heart">💙</button>
-              <button id="heartYellow" class="heart-btn heart-yellow" aria-pressed="false" title="Be the yellow heart">💛</button>
+              <button id="heartBlue" class="heart-btn heart-blue" aria-pressed="false" title="Be Baby (blue)">💙</button>
+              <button id="heartYellow" class="heart-btn heart-yellow" aria-pressed="false" title="Be Baby-y (yellow)">💛</button>
               <span id="identityHint" class="hint">Pick your heart</span>
             </div>
           </div>
@@ -328,9 +329,9 @@ cat > web/index.html <<'HTML'
               <div id="qText">—</div>
             </div>
 
-            <textarea id="answer" placeholder="Type your answer…"></textarea>
+            <textarea id="answer" placeholder="Type your answer…" autocomplete="off"></textarea>
             <div class="actions">
-              <button id="submit">Submit (locks your view)</button>
+              <button id="submit">Submit</button>
               <button id="randomQ" class="ghost">Random Question</button>
               <button id="newQ" class="ghost">Custom Question</button>
             </div>
@@ -341,11 +342,11 @@ cat > web/index.html <<'HTML'
               <h3>Both of you answered! 💌</h3>
               <div class="answers">
                 <div>
-                  <h4 id="youLabel">You</h4>
+                  <h4 id="youLabel">Baby 💙</h4>
                   <pre id="yourAns"></pre>
                 </div>
                 <div>
-                  <h4 id="partnerLabel">Partner</h4>
+                  <h4 id="partnerLabel">Baby-y 💛</h4>
                   <pre id="partnerAns"></pre>
                 </div>
               </div>
@@ -378,55 +379,75 @@ HTML
 # ---------- web/styles.css ----------
 cat > web/styles.css <<'CSS'
 :root{
+  --ink:#1a1025;
+  --rose:#ff6ea1;
+  --rose-2:#ffb3c6;
+  --mauve:#7861ff;
+  --mauve-2:#b9a8ff;
+  --cream:#fff7fb;
+  --cloud:#f2e9ff;
+  --card:#ffffffd8;
+  --shadow: 0 16px 40px rgba(0,0,0,.18);
   --blue:#2b6ef0;
   --blue-ink:#1d3ea1;
-  --ink:#111;
-  --cloud:#eef4ff;
-  --mint:#c9f3ef;
-  --card:#ffffffcc;
-  --shadow: 0 12px 30px rgba(0,0,0,.12);
 }
-*{ box-sizing: border-box; }
-body,html{ margin:0; height:100%; font-family: ui-rounded, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color:var(--ink); }
-.sky{ min-height:100%; background: radial-gradient(1200px 800px at 50% -100px, var(--blue) 0%, #0e1a3a 60%, #060c1e 100%); position:relative; }
-.stars, .clouds{ position:absolute; inset:0; pointer-events:none }
-.stars{ background-image: radial-gradient(#fff 1px, transparent 1px), radial-gradient(#fff6 1px, transparent 1px); background-size: 40px 40px, 80px 80px; opacity:.25; }
-.clouds{ background: radial-gradient(circle at 20% 30%, var(--cloud) 0 10%, transparent 11%), radial-gradient(circle at 80% 35%, var(--cloud) 0 8%, transparent 9%), radial-gradient(circle at 60% 10%, #fff 0 6%, transparent 7%); opacity:.45; mix-blend-mode: screen; }
-header{ text-align:center; padding:40px 20px; color:#fff; }
-h1{ margin:0; font-size:42px; letter-spacing:.5px }
-.tag{ margin:6px 0 0; opacity:.8 }
-main{ display:flex; justify-content:center; padding:20px }
-.card{ width:min(860px, 94vw); background:var(--card); border-radius:20px; box-shadow: var(--shadow); backdrop-filter: blur(8px); padding:22px; }
+*{ box-sizing:border-box; }
+body,html{ margin:0; height:100%; font-family: ui-rounded, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color:var(--ink); background:#0d0620; }
+.sky{ min-height:100%; position:relative; overflow:hidden;
+  background: radial-gradient(1200px 800px at 50% -40%, var(--mauve-2) 0%, #32235c 55%, #0d0620 100%);
+}
+.stars, .hearts{ position:absolute; inset:0; pointer-events:none }
+.stars{
+  background-image:
+    radial-gradient(#fff 1px, transparent 1px),
+    radial-gradient(#fff6 1px, transparent 1px);
+  background-size: 36px 36px, 72px 72px; opacity:.25;
+}
+.hearts{
+  background-image:
+    radial-gradient(closest-side, rgba(255,110,161,.25), rgba(255,110,161,0) 80%),
+    radial-gradient(closest-side, rgba(185,168,255,.18), rgba(185,168,255,0) 80%);
+  background-size: 280px 280px, 360px 360px;
+  background-position: 20% 30%, 80% 20%;
+  mix-blend-mode: screen;
+}
+header{ text-align:center; padding:44px 20px; color:#fff; }
+h1{ margin:0; font-size:44px; letter-spacing:.6px }
+.tag{ margin:8px 0 0; opacity:.9; font-weight:600 }
+main{ display:flex; justify-content:center; padding:22px }
+.card{ width:min(900px, 94vw); background:var(--card); border-radius:22px; box-shadow: var(--shadow); backdrop-filter: blur(10px); padding:22px; }
 .brand-row{ display:flex; gap:8px; justify-content:flex-end; }
 .badge{ font-size:20px; padding:6px 10px; border-radius:999px; background:#fff; box-shadow: var(--shadow); }
+.badge-spacepup{ border:2px dashed var(--mauve); }
+.badge-beagle{ border:2px dashed #222; }
 .room-controls{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:6px; }
-.or{ opacity:.6 }
+.or{ color:#fff; background:var(--mauve); padding:4px 8px; border-radius:999px; font-weight:700 }
 input, textarea{ width:100%; padding:12px 14px; border:2px solid #0000; background:#fff; border-radius:14px; box-shadow: var(--shadow); outline:none; }
-input:focus, textarea:focus{ border-color: var(--blue); }
+input:focus, textarea:focus{ border-color: var(--mauve); }
 textarea{ min-height:120px; resize:vertical; }
-.secret-row{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin:12px 0; align-items: center; }
+.secret-row{ display:grid; grid-template-columns: 1fr auto; gap:10px; margin:12px 0; align-items: center; }
 .identity{ display:flex; align-items:center; gap:10px; }
 .heart-btn{ font-size:22px; padding:8px 12px; border-radius:999px; border:2px solid transparent; background:#fff; cursor:pointer; box-shadow: var(--shadow); }
 .heart-blue[aria-pressed="true"]{ border-color: var(--blue-ink); background:#e7efff; }
 .heart-yellow[aria-pressed="true"]{ border-color: #b69000; background:#fff6cf; }
 .hint{ font-size:13px; opacity:.7 }
 .tabs{ display:flex; gap:10px; margin:8px 0 12px; }
-.tab{ padding:8px 12px; border-radius:10px; border:2px solid #0000; background:#fff; box-shadow: var(--shadow); cursor:pointer; }
-.tab.active{ border-color: var(--blue); color: var(--blue); font-weight:700; }
-.question{ margin:14px 0; background: linear-gradient(135deg, var(--mint), #fef0f4); border-radius:16px; padding:14px; }
-#qText{ font-weight:600; }
+.tab{ padding:8px 12px; border-radius:10px; border:2px solid #0000; background:#fff; box-shadow: var(--shadow); cursor:pointer; color:var(--ink); font-weight:700; }
+.tab.active{ border-color: var(--mauve); color: var(--mauve); }
+.question{ margin:14px 0; background: linear-gradient(135deg, var(--cloud), #ffe7f1); border-radius:16px; padding:14px; }
+#qText{ font-weight:700; font-size:18px }
 .actions{ display:flex; gap:10px; align-items:center; margin-top:10px; flex-wrap: wrap; }
-button{ padding:12px 16px; border-radius:12px; border:none; background:var(--blue); color:#fff; font-weight:600; cursor:pointer; box-shadow: var(--shadow); }
-button.ghost{ background:#fff; color:var(--blue); border:2px solid var(--blue); }
-button:disabled{ opacity:.5; cursor:not-allowed }
-.status{ margin-top:8px; font-size:14px; opacity:.8 }
+button{ padding:12px 16px; border-radius:12px; border:none; background:var(--mauve); color:#fff; font-weight:700; cursor:pointer; box-shadow: var(--shadow); }
+button.ghost{ background:#fff; color:var(--mauve); border:2px solid var(--mauve); }
+button:disabled{ opacity:.6; cursor:not-allowed }
+.status{ margin-top:8px; font-size:14px; opacity:.85 }
 .reveal{ margin-top:18px; background:#fff; border-radius:16px; padding:12px; }
 .answers{ display:grid; grid-template-columns: 1fr 1fr; gap:12px }
 pre{ white-space: pre-wrap; word-wrap: break-word; background:var(--cloud); padding:10px; border-radius:12px; }
 .list{ list-style:none; padding:0; margin:10px 0; display:grid; gap:8px; }
 .list li{ background:#fff; border-radius:12px; padding:10px; box-shadow: var(--shadow); display:flex; justify-content:space-between; gap:10px; align-items:center; }
 .list li small{ opacity:.7 }
-footer{ text-align:center; color:#fff; opacity:.75; padding:20px; }
+footer{ text-align:center; color:#fff; opacity:.85; padding:22px; }
 .hidden{ display:none; }
 CSS
 
@@ -461,8 +482,9 @@ function updateHeartUI() {
   const you = document.getElementById('youLabel');
   const partner = document.getElementById('partnerLabel');
   if (you && partner) {
-    you.textContent = h === 'yellow' ? 'You 💛' : 'You 💙';
-    partner.textContent = h === 'yellow' ? 'Partner 💙' : 'Partner 💛';
+    // Blue is Baby, Yellow is Baby-y
+    if (h === 'yellow') { you.textContent = 'Baby-y 💛'; partner.textContent = 'Baby 💙'; }
+    else { you.textContent = 'Baby 💙'; partner.textContent = 'Baby-y 💛'; }
   }
   const hint = document.getElementById('identityHint');
   if (hint) hint.textContent = h ? 'Identity set' : 'Pick your heart';
@@ -506,6 +528,15 @@ function showTab(name){
   if (name === 'history') loadHistory();
 }
 
+function resetRevealUI(){
+  state.submitted = false;
+  // Clear any preserved plaintext value
+  const ans = el('#answer'); if (ans) { ans.value = ''; ans.disabled = false; }
+  el('#reveal').classList.add('hidden');
+  el('#status').textContent = '';
+  if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+}
+
 // ---- room flow ----
 async function createRoom(){
   const r = await fetch(api('/api/room'), { method:'POST' }).then(r=>r.json());
@@ -529,20 +560,17 @@ function connectWS(){
       resetRevealUI();
       state.questionId = msg.questionId; fetchQuestionText();
     }
-    if (msg.type === 'readyToReveal' && msg.questionId === state.questionId) {
-      revealAnswers();
-    }
+    if (msg.type === 'readyToReveal' && msg.questionId === state.questionId) revealAnswers();
   });
 }
-function resetRevealUI(){
-  state.submitted = false; el('#answer').value = ''; el('#reveal').classList.add('hidden');
-  el('#status').textContent = '';
-  if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
-}
+
 async function fetchQuestionText(){
   const q = await fetch(api(`/api/room/${state.roomId}/question`)).then(r=>r.json());
   state.questionId = q.questionId; el('#qText').textContent = q.text;
+  // When loading a question, detect if we already answered and re-lock view
+  await checkMySubmission();
 }
+
 async function loadQuestion(){ await fetchQuestionText(); startPolling(); }
 
 // Polling fallback
@@ -552,11 +580,34 @@ function startPolling(){
     if (!state.questionId) return;
     const res = await fetch(api(`/api/answers/${state.questionId}`)).then(r=>r.json()).catch(()=>null);
     if (!res) return;
-    if (res.distinctUsers >= 2) {
-      clearInterval(state.pollTimer); state.pollTimer = null;
-      revealAnswers();
-    }
+    if (res.distinctUsers >= 2) { clearInterval(state.pollTimer); state.pollTimer = null; revealAnswers(); }
   }, 1500);
+}
+
+// Detect if I have already answered this question (so reloads persist the lock)
+async function checkMySubmission(){
+  const myId = getMeId();
+  const passphrase = el('#passphrase').value.trim();
+  const ans = await fetch(api(`/api/answers/${state.questionId}`)).then(r=>r.json());
+  const mine = (ans.answers || []).find(a => a.userId === myId);
+  const distinct = ans.distinctUsers || (ans.answers || []).length;
+
+  if (mine) {
+    // Lock UI like after submit; don't show plaintext
+    el('#submit').disabled = true;
+    el('#passphrase').disabled = true;
+    const ta = el('#answer'); if (ta) { ta.value = ''; ta.disabled = true; }
+    el('#status').textContent = 'Answer locked. Waiting for your partner…';
+  } else {
+    // Ensure fields are enabled if we haven't answered
+    el('#submit').disabled = false;
+    const ta = el('#answer'); if (ta) ta.disabled = false;
+    el('#status').textContent = '';
+  }
+
+  if (distinct >= 2 && passphrase) {
+    await revealAnswers();
+  }
 }
 
 // ---- ask actions ----
@@ -565,16 +616,20 @@ async function submitAnswer(){
   if(!passphrase) return alert('Add a shared passphrase first');
   if(!getHeart()) return alert('Pick your heart (💙 or 💛) before submitting');
   const text = el('#answer').value.trim(); if(!text) return alert('Write an answer');
+
   el('#submit').disabled = true;
-  el('#passphrase').disabled = true; // lock after submit to avoid mismatch
+  el('#passphrase').disabled = true; // lock after submit
+  const ta = el('#answer'); if (ta) { ta.disabled = true; ta.value = ''; } // clear plaintext
+
   const { ciphertext, iv, salt } = await encryptText(text, passphrase);
   await fetch(api('/api/answer'), {
     method:'POST', headers: { 'Content-Type':'application/json' },
     body: JSON.stringify({ questionId: state.questionId, userId: getMeId(), ciphertext, iv, salt })
   });
   state.submitted = true; el('#status').textContent = 'Answer locked. Waiting for your partner…';
-  startPolling(); // fallback even if WS misses
+  startPolling();
 }
+
 async function revealAnswers(){
   const passphrase = el('#passphrase').value.trim();
   const myId = getMeId();
@@ -598,13 +653,12 @@ async function revealAnswers(){
   el('#partnerAns').textContent = partnerText || '(not found)';
   el('#reveal').classList.remove('hidden'); 
 }
+
 async function newQuestion(){
   const t = prompt('Type a new question for this room:'); if (!t) return;
   await fetch(api(`/api/room/${state.roomId}/question`), { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ text: t }) });
 }
-async function randomQuestion(){
-  await fetch(api(`/api/room/${state.roomId}/random`), { method:'POST' });
-}
+async function randomQuestion(){ await fetch(api(`/api/room/${state.roomId}/random`), { method:'POST' }); }
 
 // ---- inbox & history ----
 function fmtDate(ts){ const d=new Date(ts); return d.toLocaleString(); }
@@ -620,11 +674,11 @@ async function loadInbox(){
     btn.textContent = 'Answer';
     btn.className = 'ghost';
     btn.onclick = async () => {
-      // load this question into Ask tab
       state.questionId = it.id;
       el('#qText').textContent = it.text;
       showTab('ask');
       resetRevealUI();
+      await checkMySubmission(); // lock immediately if already answered earlier
       startPolling();
     };
     li.appendChild(btn);
@@ -646,7 +700,6 @@ async function loadHistory(){
       state.questionId = it.id;
       el('#qText').textContent = it.text;
       showTab('ask');
-      // Immediately reveal if both answered (history guarantees this)
       await revealAnswers();
     };
     li.appendChild(btn);
@@ -656,6 +709,7 @@ async function loadHistory(){
 
 // ---- boot ----
 document.addEventListener('DOMContentLoaded', () => {
+  el('#answer').value = ''; // prevent browser restoring plaintext
   el('#createRoom').addEventListener('click', createRoom);
   el('#joinRoom').addEventListener('click', joinRoom);
   el('#submit').addEventListener('click', submitAnswer);
@@ -666,10 +720,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('heartYellow')?.addEventListener('click', () => setHeart('yellow'));
   updateHeartUI();
 
-  // Tabs
-  for (const t of document.querySelectorAll('.tab')) {
-    t.addEventListener('click', () => showTab(t.dataset.tab));
-  }
+  for (const t of document.querySelectorAll('.tab')) t.addEventListener('click', () => showTab(t.dataset.tab));
 });
 JS
 
@@ -690,13 +741,14 @@ Frontend: http://localhost:5173
 API/WS:  http://localhost:3000
 
 ### Features
-- Heart identity picker (💙 / 💛)
+- Heart identity picker (💙 Baby / 💛 Baby-y)
 - Stable hidden identity per browser (localStorage)
-- Random question from a big bank
+- Random question from a larger bank
 - Inbox: questions your partner answered that you haven't yet
 - History: questions you both answered (click to view answers)
 - WebSocket + polling fallback for reveals
-- All data persisted in SQLite
+- Reload persistence: if you've already answered a question, the app relocks your view automatically (no plaintext left in the box)
+- Romantic UI theme
 
 MD
 
@@ -710,4 +762,4 @@ data
 .env
 GIT
 
-echo "✅ Relationship-y (inbox + history + random) generated."
+echo "✅ Relationship-y (romantic + persistence fixes) generated."
